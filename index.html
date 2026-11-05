@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ZHULDYZ STOM — управление</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1d2330;--mut:#667085;--line:#e3e6ec;--ac:#0f766e;--acbg:#e0f2f1;--bad:#b42318;--badbg:#fee4e2;--warn:#b54708;--warnbg:#fef0c7;--ok:#067647;--okbg:#d1fadf;color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#12161d;--card:#1b212b;--tx:#e8ebf0;--mut:#9aa4b2;--line:#2c3441;--ac:#5eead4;--acbg:#16322f;--bad:#fda29b;--badbg:#44201d;--warn:#fec84b;--warnbg:#3d2f10;--ok:#6ce9a6;--okbg:#12362a;color-scheme:dark}}
+*{box-sizing:border-box}html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{padding:16px 16px 0;max-width:1100px;margin:auto}
+h1{font-size:20px;margin:0 0 2px}h2{font-size:16px;margin:0 0 10px}h3{font-size:14px;margin:14px 0 6px;color:var(--mut)}
+.sub{color:var(--mut);font-size:13px}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
+nav button{border:1px solid var(--line);background:var(--card);color:var(--tx);padding:8px 14px;border-radius:999px;font:inherit;cursor:pointer}
+nav button.on{background:var(--ac);color:var(--bg);border-color:var(--ac)}
+main{max-width:1100px;margin:auto;padding:0 16px 40px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+.kpi b{display:block;font-size:24px}.kpi span{color:var(--mut);font-size:12px}
+.wrap{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:620px}
+th,td{padding:8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle;font-size:14px}
+th{color:var(--mut);font-weight:600;font-size:12px}
+.bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden;min-width:70px}.bar i{display:block;height:100%;background:var(--ac)}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;background:var(--acbg);color:var(--ac)}
+.tag.bad{background:var(--badbg);color:var(--bad)}.tag.warn{background:var(--warnbg);color:var(--warn)}.tag.ok{background:var(--okbg);color:var(--ok)}
+input,select,textarea,.btn{font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 9px;max-width:100%}
+input[type=number]{width:84px}
+.btn{cursor:pointer;background:var(--card)}.btn.p{background:var(--ac);color:var(--bg);border-color:var(--ac)}.btn.s{padding:4px 9px;font-size:13px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+label{display:block;font-size:12px;color:var(--mut);margin-bottom:3px}
+.task{border-top:1px solid var(--line);padding:10px 0}.task:first-of-type{border-top:0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.msg{padding:10px 12px;border-radius:10px;background:var(--warnbg);color:var(--warn);margin-bottom:12px;font-size:14px}
+.empty{color:var(--mut);padding:8px 0}.staff .own{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>ZHULDYZ STOM — система управления</h1>
+  <div class="sub">Задачи, исполнители и ежедневный отчёт по врачам: пациенты и планы</div>
+  <nav id="nav"></nav>
+</header>
+<main>
+  <div id="msg"></div>
+  <div id="view"></div>
+</main>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="config.js"></script>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pad=n=>String(n).padStart(2,'0');
+const dstr=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const today=dstr(new Date());
+const DIRS=['Стоматология ZHULDYZ STOM','Аптека 1','Аптека 2','Другие направления'];
+const KINDS={decide:'Требует моего решения',delegate:'Делегировано',control:'На контроле'};
+const STAT={open:'В работе',review:'Сдано, жду проверки',done:'Подтверждено'};
+let db=null,people=[],tasks=[],logs=[],tab='ov',month=today.slice(0,7),day=today,pending=false,role='all',authed=false,unsubs=[];
+const tabOk=id=>role==='owner'?id!=='day':role==='staff'?(id==='day'||id==='tasks'):true;
+const TABS=[['ov','Обзор'],['tasks','Задачи'],['day','Таблица дня'],['ppl','Люди'],['rem','Напоминания']];
+const pname=id=>(people.find(p=>p.id===id)||{}).name||'—';
+const pct=(a,b)=>b>0?Math.round(a/b*100):null;
+const pcts=v=>v==null?'—':v+'%';
+const uid=p=>p+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+function note(t){$('#msg').innerHTML=t?'<div class="msg">'+esc(t)+'</div>':''}
+async function w(fn){try{await fn()}catch(e){note('Не удалось сохранить: нет права на это действие или нет интернета. ('+(e&&e.code||e&&e.message||'ошибка')+')')}}
+function bar(v,cls){return '<div class="bar"><i style="width:'+Math.min(100,v||0)+'%"></i></div>'}
+
+function vLogin(){return '<div class="card" style="max-width:360px;margin:20px auto"><h2>Вход</h2><label>Эл. почта</label><input id="le" type="email" style="width:100%" autocomplete="username"><label style="margin-top:8px">Пароль</label><input id="lp" type="password" style="width:100%" autocomplete="current-password"><p><button class="btn p" id="lgo">Войти</button></p></div>'}
+function render(){
+  if(!authed){$('#nav').innerHTML='';$('#view').innerHTML=vLogin();return}
+  $('#nav').innerHTML=TABS.filter(t=>tabOk(t[0])).map(t=>'<button data-tab="'+t[0]+'" class="'+(tab===t[0]?'on':'')+'">'+t[1]+'</button>').join('')+'<button id="lout">Выйти</button>';
+  const v=$('#view');v.className=role==='staff'?'staff':'';
+  if(tab==='ov')v.innerHTML=vOverview();
+  else if(tab==='tasks')v.innerHTML=vTasks();
+  else if(tab==='day')v.innerHTML=vDay();
+  else if(tab==='ppl')v.innerHTML=vPeople();
+  else v.innerHTML=vRemind();
+}
+function isDoc(p){return p.kind==='doctor'}
+function stats(p){
+  const L=logs.filter(l=>l.pid===p.id&&String(l.day).startsWith(month));
+  const s=k=>L.reduce((a,l)=>a+(+l[k]||0),0);
+  const pat=s('pat'),plan=s('plan');
+  const all=logs.filter(l=>l.pid===p.id).map(l=>l.day).sort();
+  const open=tasks.filter(t=>t.who===p.id&&t.status!=='done');
+  return{pat,plan,days:L.length,last:all.length?all[all.length-1]:null,open:open.length,od:open.filter(t=>t.due&&t.due<today).length,dn:tasks.filter(t=>t.who===p.id&&t.status==='done').length,pp:pct(plan,pat),anom:plan>pat};
+}
+function vOverview(){
+  const mt=tasks.filter(t=>!t.due||t.due.startsWith(month));
+  const done=mt.filter(t=>t.status==='done').length;
+  const over=tasks.filter(t=>t.status!=='done'&&t.due&&t.due<today).length;
+  const docs=people.filter(isDoc),staff=people.filter(p=>!isDoc(p));
+  const filled=docs.filter(p=>logs.some(l=>l.day===today&&l.pid===p.id&&l.pat!=null&&l.plan!=null));
+  const missing=docs.filter(p=>!filled.includes(p));
+  const lastAt=logs.reduce((m,l)=>Math.max(m,l.at||0),0);
+  const DS=docs.map(p=>({p,s:stats(p)}));
+  const mp=DS.reduce((a,x)=>a+x.s.pat,0),ml=DS.reduce((a,x)=>a+x.s.plan,0);
+  let h='<div class="card"><label>Месяц</label><input type="month" id="mon" value="'+month+'"></div>';
+  h+='<div class="kpis">'+
+   '<div class="kpi"><b>'+pcts(pct(ml,mp))+'</b><span>планов к пациентам за месяц ('+ml+' из '+mp+')</span></div>'+
+   '<div class="kpi"><b>'+filled.length+' из '+docs.length+'</b><span>врачей, по которым внесены данные сегодня</span></div>'+
+   '<div class="kpi"><b>'+pcts(pct(done,mt.length))+'</b><span>задач подтверждено ('+done+' из '+mt.length+')</span></div>'+
+   '<div class="kpi"><b>'+over+'</b><span>задач просрочено</span></div>'+
+   '<div class="kpi"><b style="font-size:15px">'+(lastAt?new Date(lastAt).toLocaleString('ru-RU'):'ещё не вносили')+'</b><span>последнее внесение данных</span></div></div>';
+  if(docs.length&&missing.length)h+='<div class="card"><h2>По этим врачам за сегодня данные не внесены полностью</h2>'+missing.map(p=>'<span class="tag bad">'+esc(p.name)+'</span> ').join('')+'</div>';
+  h+='<div class="card"><h2>Врачи: пациенты и планы</h2>';
+  if(!docs.length)h+='<div class="empty">Врачей пока нет. Добавьте их на вкладке «Люди».</div>';
+  else{
+    h+='<div class="wrap"><table><tr><th>Врач</th><th>Принято пациентов</th><th>Написано планов</th><th>Планы к пациентам</th><th>Дней с данными</th><th>Последняя запись</th></tr>';
+    DS.forEach(({p,s})=>{
+      h+='<tr><td><b>'+esc(p.name)+'</b></td><td>'+s.pat+'</td><td>'+s.plan+'</td>'+
+      '<td>'+pcts(s.pp)+bar(s.pp)+(s.anom?'<div class="tag warn">планов больше, чем пациентов — проверить</div>':'')+'</td>'+
+      '<td>'+s.days+'</td><td>'+(s.last?esc(s.last):'<span class="tag warn">нет записей</span>')+'</td></tr>';
+    });
+    h+='</table></div>';
+  }
+  h+='</div><div class="card"><h2>Исполнители: занятость по задачам</h2>';
+  if(!staff.length)h+='<div class="empty">Исполнителей пока нет. Добавьте их на вкладке «Люди».</div>';
+  else{
+    const SS=staff.map(p=>({p,s:stats(p)})),mx=Math.max(5,...SS.map(x=>x.s.open));
+    h+='<div class="wrap"><table><tr><th>Исполнитель</th><th>Открытых задач</th><th>Просрочено</th><th>Подтверждено</th></tr>';
+    SS.forEach(({p,s})=>{h+='<tr><td><b>'+esc(p.name)+'</b><div class="sub">'+esc(p.role||'')+'</div></td><td>'+s.open+bar(pct(s.open,mx))+'</td><td>'+(s.od?'<span class="tag bad">'+s.od+'</span>':'0')+'</td><td>'+s.dn+'</td></tr>'});
+    h+='</table></div>';
+  }
+  return h+'</div>';
+}
+function vTasks(){
+  const opts=people.map(p=>'<option value="'+p.id+'">'+esc(p.name)+'</option>').join('');
+  let h='<div class="card own"><h2>Новая задача</h2><div class="grid">'+
+  '<div><label>Что сделать</label><input id="tt" style="width:100%"></div>'+
+  '<div><label>Направление</label><select id="td">'+DIRS.map(d=>'<option>'+d+'</option>').join('')+'</select></div>'+
+  '<div><label>Тип</label><select id="tk">'+Object.keys(KINDS).map(k=>'<option value="'+k+'">'+KINDS[k]+'</option>').join('')+'</select></div>'+
+  '<div><label>Ответственный</label><select id="tw"><option value="">— не назначен —</option>'+opts+'</select></div>'+
+  '<div><label>Срок</label><input type="date" id="tdue"></div>'+
+  '<div><label>Ожидаемый результат</label><input id="tr" style="width:100%"></div>'+
+  '<div><label>Как проверить</label><input id="tv" style="width:100%"></div></div>'+
+  '<p><button class="btn p" id="addt">Добавить задачу</button></p></div>';
+  DIRS.forEach(d=>{
+    const T=tasks.filter(t=>t.dir===d);
+    h+='<div class="card"><h2>'+esc(d)+'</h2>';
+    if(!T.length)h+='<div class="empty">Задач нет</div>';
+    Object.keys(KINDS).forEach(k=>{
+      const K=T.filter(t=>t.kind===k).sort((a,b)=>(a.due||'9').localeCompare(b.due||'9'));
+      if(!K.length)return;
+      h+='<h3>'+KINDS[k]+'</h3>';
+      K.forEach(t=>{
+        const od=t.status!=='done'&&t.due&&t.due<today;
+        h+='<div class="task"><div class="row"><b>'+esc(t.title)+'</b>'+
+        '<span class="tag '+(t.status==='done'?'ok':t.status==='review'?'warn':'')+'">'+STAT[t.status||'open']+'</span>'+(od?'<span class="tag bad">просрочено</span>':'')+'</div>'+
+        '<div class="sub">Ответственный: '+esc(pname(t.who))+' · Срок: '+esc(t.due||'не указан')+'</div>'+
+        '<div class="sub">Результат: '+esc(t.result||'не указан')+' · Проверка: '+esc(t.verify||'не указана')+'</div>'+
+        '<div class="row" style="margin-top:6px">'+
+        (t.status==='open'||!t.status?'<button class="btn s" data-st="review" data-id="'+t.id+'">Исполнитель сдал</button>':'')+
+        (t.status!=='done'?'<button class="btn s own" data-st="done" data-id="'+t.id+'">Я проверила — подтверждаю</button>':'<button class="btn s own" data-st="open" data-id="'+t.id+'">Вернуть в работу</button>')+
+        '<button class="btn s own" data-deltask="'+t.id+'">Удалить</button></div></div>';
+      });
+    });
+    h+='</div>';
+  });
+  return h;
+}
+function vDay(){
+  const docs=people.filter(isDoc);
+  let h='<div class="card"><label>Дата</label><input type="date" id="dayin" value="'+day+'"><p class="sub">Вносит администратор: сколько пациентов принял каждый врач за день и по скольким из них написан план. Пустое поле означает «не внесено», 0 означает «ноль».</p></div>';
+  if(!docs.length)return h+'<div class="empty">Сначала добавьте врачей на вкладке «Люди».</div>';
+  h+='<div class="card wrap"><table><tr><th>Врач</th><th>Принято пациентов</th><th>Написано планов</th><th></th></tr>';
+  docs.forEach(p=>{
+    const l=logs.find(x=>x.id===day+'_'+p.id)||{};
+    const ok=l.pat!=null&&l.plan!=null;
+    const f=k=>'<td><input type="number" min="0" data-pid="'+p.id+'" data-f="'+k+'" value="'+(l[k]==null?'':l[k])+'"></td>';
+    h+='<tr><td>'+esc(p.name)+'</td>'+f('pat')+f('plan')+'<td>'+(ok?(l.plan>l.pat?'<span class="tag warn">планов больше, чем пациентов</span>':'<span class="tag ok">внесено</span>'):'<span class="tag warn">не полностью</span>')+'</td></tr>';
+  });
+  return h+'</table></div>';
+}
+function vPeople(){
+  let h='<div class="card"><h2>Добавить человека</h2><div class="row"><input id="pn" placeholder="Имя и фамилия"><select id="pk"><option value="doctor">Врач (по нему вносятся пациенты и планы)</option><option value="staff">Исполнитель (получает задачи)</option></select><input id="pr" placeholder="Должность (необязательно)"><button class="btn p" id="addp">Добавить</button></div></div><div class="card"><h2>Люди</h2>'+(!people.length&&role==='owner'?'<p><button class="btn p" id="seed">Загрузить врачей из таблицы «планы и карты» и администратора</button></p>':'');
+  if(!people.length)h+='<div class="empty">Список пуст</div>';
+  people.forEach(p=>{h+='<div class="task row"><b>'+esc(p.name)+'</b><span class="tag">'+(isDoc(p)?'врач':'исполнитель')+'</span><span class="sub">'+esc(p.role||'')+'</span><button class="btn s" data-delp="'+p.id+'">Удалить</button></div>'});
+  return h+'</div>';
+}
+function vRemind(){
+  return '<div class="card"><h2>Напоминания на почту</h2><p>Эта страница сама письма не отправляет. Ежедневное письмо админу (zhuldyz.stom8@gmail.com) около 16:00 с просьбой внести данные за день отправляет отдельный скрипт Google Apps Script. Файл скрипта и инструкция лежат в чате.</p><p class="sub">Скрипт не видит, внесены ли данные: письмо приходит каждый день. Проверить, кто не внёс данные, можно на вкладке «Обзор» в блоке «Сегодня не внесли данные полностью».</p></div>';
+}
+
+document.addEventListener('click',e=>{
+  const t=e.target;
+  if(t.dataset.tab){tab=t.dataset.tab;render();return}
+  if(t.id==='lgo'){firebase.auth().signInWithEmailAndPassword($('#le').value.trim(),$('#lp').value).catch(()=>note('Неверная почта или пароль.'));return}
+  if(t.id==='lout'){firebase.auth().signOut();return}
+  if(!db)return;
+  if(t.id==='seed'){['Кабдрасина Гульнар','Кадашева Динара','Мажренова Карлыгаш','Мухаметкаримов Куан','Сагындык Ержан','Сарбасова Жанаргуль','Яндалина Ольга'].forEach((n,i)=>w(()=>db.doc('people/p'+(i+1)).set({name:n,kind:'doctor',role:'Врач'})));w(()=>db.doc('people/p8').set({name:'Администратор',kind:'staff',role:'Вносит данные по врачам'}));return}
+  if(t.id==='addt'){
+    const title=$('#tt').value.trim();if(!title){note('Напишите, что нужно сделать.');return}
+    const id=uid('t');
+    w(()=>db.doc('tasks/'+id).set({title,dir:$('#td').value,kind:$('#tk').value,who:$('#tw').value,due:$('#tdue').value,result:$('#tr').value.trim(),verify:$('#tv').value.trim(),status:'open',at:Date.now()}));
+  }
+  if(t.dataset.st){const tk=tasks.find(x=>x.id===t.dataset.id);w(()=>db.doc('tasks/'+t.dataset.id).update({status:t.dataset.st}))}
+  if(t.dataset.deltask&&confirm('Удалить задачу?'))w(()=>db.doc('tasks/'+t.dataset.deltask).delete());
+  if(t.id==='addp'){
+    const name=$('#pn').value.trim();if(!name)return;const id=uid('p');
+    w(()=>db.doc('people/'+id).set({name,kind:$('#pk').value,role:$('#pr').value.trim()}));
+  }
+  if(t.dataset.delp&&confirm('Удалить исполнителя? Его записи в таблице останутся.'))w(()=>db.doc('people/'+t.dataset.delp).delete());
+});
+document.addEventListener('change',e=>{
+  const t=e.target;
+  if(t.id==='mon'){month=t.value||month;render();return}
+  if(t.id==='dayin'){day=t.value||day;render();return}
+  if(t.dataset.pid&&db){
+    const row=t.closest('tr'),g=k=>{const v=row.querySelector('[data-f="'+k+'"]').value;return v===''?null:Math.max(0,+v)};
+    const pat=g('pat'),plan=g('plan'),id=day+'_'+t.dataset.pid;
+    if(pat==null&&plan==null)w(()=>db.doc('log/'+id).delete());
+    else w(()=>db.doc('log/'+id).set({day,pid:t.dataset.pid,pat,plan,at:Date.now()}));
+  }
+});
+document.addEventListener('focusout',()=>{setTimeout(()=>{if(pending&&!/INPUT|SELECT|TEXTAREA/.test((document.activeElement||{}).tagName||'')){pending=false;render()}},50)});
+function safeRender(){const a=document.activeElement;if(a&&/INPUT|SELECT|TEXTAREA/.test(a.tagName)&&$('#view').contains(a)){pending=true;return}render()}
+
+(async()=>{
+  render();
+  if(!window.firebase||!window.FIREBASE_CONFIG||String(FIREBASE_CONFIG.apiKey).indexOf('ВСТАВЬТЕ')===0){note('Не заполнен файл config.js. Выполните шаги из README.');return}
+  firebase.initializeApp(FIREBASE_CONFIG);
+  firebase.auth().onAuthStateChanged(u=>{
+    unsubs.forEach(f=>f());unsubs=[];
+    if(!u){authed=false;db=null;people=[];tasks=[];logs=[];render();return}
+    role=u.uid===APP_ROLES.OWNER_UID?'owner':u.uid===APP_ROLES.ADMIN_UID?'staff':'none';
+    if(role==='none'){firebase.auth().signOut();note('У этой учётной записи нет доступа.');return}
+    authed=true;db=firebase.firestore();tab=role==='owner'?'ov':'day';note('');
+    const sub=(name,set)=>unsubs.push(db.collection(name).limit(1000).onSnapshot(sn=>{set(sn.docs.map(d=>Object.assign({id:d.id},d.data())));safeRender()},e=>note('Не удалось загрузить данные ('+(e&&e.code||'ошибка')+').')));
+    sub('people',x=>people=x.sort((a,b)=>a.name.localeCompare(b.name,'ru')));
+    sub('tasks',x=>tasks=x);
+    sub('log',x=>logs=x);
+    render();
+  });
+})();
+</script>
+</body>
+</html>
